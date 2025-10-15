@@ -1,0 +1,262 @@
+﻿@model Fikir_1.Models.Legends.LegendModel
+
+<div class="container mt-4">
+	<div class="row">
+		<!-- Left Side: Text-based Content -->
+		<div class="col-md-6">
+			<a href="@Url.Action("Index", "Legend")" class="btn btn-secondary mb-3">⬅ Geri</a>
+			<h2>@Model.Name ile Sohbet</h2>
+			<p class="text-muted">@Model.Description</p>
+
+			<h3 class="mt-3">Önerilen Sorular</h3>
+			<ul class="list-group">
+				@foreach (var question in Model.SampleQuestions.Split(','))
+				{
+					<li class="list-group-item">❓ @question</li>
+				}
+			</ul>
+
+			<h3 class="mt-4">Sorunu Yaz</h3>
+			<form method="post" action="@Url.Action("AskQuestion", "Legend")">
+				<input type="hidden" name="legendId" value="@Model.Id">
+				<textarea id="questionInput" name="questionText" class="form-control" rows="4"></textarea>
+				<div class="mt-2">
+					<button type="submit" class="btn btn-primary">📩 Sor</button>
+					<button type="button" id="startSpeechRecognition" class="btn btn-outline-primary">🎤 Sesle Sor</button>
+				</div>
+			</form>
+
+			@if (!string.IsNullOrEmpty(ViewBag.Answer))
+			{
+				<div class="mt-4">
+					<button type="button" id="speakAnswer" class="btn btn-success">🔊 Cevabı Sesle Dinle</button>
+					<p id="aiAnswer" data-answer="@Html.Raw(ViewBag.Answer)" data-voice-pitch="@Model.VoicePitch" data-voice-name="@Model.VoiceName" class="mt-2">
+						🗨 @Html.Raw(ViewBag.Answer)
+					</p>
+				</div>
+			}
+			else
+			{
+				<p id="aiAnswer" data-answer="" class="mt-3 text-muted">Henüz bir cevap yok.</p>
+			}
+		</div>
+
+		<!-- Right Side: Visuals (Profile, Webcam, AI-Generated Image) -->
+		<div class="col-md-6 text-center">
+			<img src="@Url.Content(Model.PhotoUrl)" alt="@Model.Name" class="img-fluid rounded shadow-lg mb-3" style="max-width: 200px;" />
+
+			<div class="photo-upload-container p-3 border rounded bg-light">
+				<h3>Kendi Avatarını Oluştur</h3>
+
+				<!-- Kamera Görüntüsü -->
+				<video id="video" class="border rounded shadow-sm" autoplay style="width: 100%; max-width: 300px;"></video>
+				<button id="capturePhoto" class="btn btn-secondary mt-2">📸 Fotoğraf Çek</button>
+				<canvas id="canvas" style="display:none;"></canvas>
+
+				<!-- Önizleme -->
+				<img id="photoPreview" class="mt-3 border rounded shadow-sm" style="display:none; max-width: 100%;" />
+				<input type="hidden" id="legendNameInput" value="@Model.Name" />
+				<button id="generateImageBtn" class="btn btn-primary mt-2" disabled>🎨 Görsel Oluştur</button>
+				<!-- QR Kodu Gösterme Alanı -->
+				<button id="generateQrBtn" class="btn btn-warning mt-3" style="display: none;">📲 QR Kod ile Telefona Aktar</button>
+				<br>
+				<img id="qrCodeImage" style="display:none; max-width: 200px; margin-top:10px;" />
+
+
+				<!-- AI Tarafından Oluşturulan Görsel -->
+				<img id="generatedImage" class="mt-3 border rounded shadow-lg" style="display:none; max-width: 100%;" />
+			</div>
+		</div>
+	</div>
+</div>
+
+
+<script>
+		 document.addEventListener("DOMContentLoaded", function () {
+		console.log("JavaScript Yüklendi - Tüm Kodlar Çalışıyor!");
+
+		// 🎤 **Sesli Giriş (Speech-to-Text) - Mikrofon Kullanımı**
+		const speechButton = document.getElementById("startSpeechRecognition");
+		const questionInput = document.getElementById("questionInput");
+
+		const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+		if (!SpeechRecognition) {
+			alert("Tarayıcınız sesli giriş özelliğini desteklemiyor.");
+			speechButton.disabled = true;
+		} else {
+			const recognition = new SpeechRecognition();
+			recognition.lang = "tr-TR";
+			recognition.continuous = false;
+			recognition.interimResults = false;
+
+			speechButton.addEventListener("click", function () {
+				recognition.start();
+				speechButton.textContent = "🎤 Dinleniyor...";
+			});
+
+			recognition.onresult = function (event) {
+				const speechText = event.results[0][0].transcript;
+				questionInput.value = speechText;
+				speechButton.textContent = "🎤 Sesle Sor";
+			};
+
+			recognition.onend = function () {
+				speechButton.textContent = "🎤 Sesle Sor";
+			};
+
+			recognition.onerror = function (event) {
+				console.error("Konuşma tanıma hatası:", event.error);
+				alert("Ses tanıma sırasında bir hata oluştu: " + event.error);
+				speechButton.textContent = "🎤 Sesle Sor";
+			};
+		}
+
+		// 🔊 **Metni Sese Dönüştürme (Text-to-Speech)**
+		const speakButton = document.getElementById("speakAnswer");
+		const answerElement = document.getElementById("aiAnswer");
+
+		if (!answerElement) {
+			console.error("HATA: `aiAnswer` elementi bulunamadı! ViewBag.Answer render edilmemiş olabilir.");
+			return;
+		}
+
+		const voicePitch = parseFloat(answerElement.getAttribute("data-voice-pitch")) || 1.0;
+		const voiceName = answerElement.getAttribute("data-voice-name") || "";
+		const answerText = answerElement.dataset.answer?.trim() || "";
+
+		let voices = [];
+
+		function loadVoices() {
+			voices = speechSynthesis.getVoices();
+			console.log("Yüklenen Sesler:", voices);
+
+			let selectedVoice = voices.find(v => v.name === voiceName);
+			if (!selectedVoice) {
+				console.warn(`Seçilen ses bulunamadı: ${voiceName}. Varsayılan ses kullanılacak.`);
+			}
+
+			speakButton.addEventListener("click", function () {
+				console.log("Cevabı Sesle Dinle Butonuna Basıldı!");
+
+				if (answerText !== "") {
+					window.speechSynthesis.cancel();
+					const speech = new SpeechSynthesisUtterance(answerText);
+					speech.lang = 'tr-TR';
+					speech.pitch = voicePitch;
+					speech.rate = 1;
+
+					if (selectedVoice) {
+						speech.voice = selectedVoice;
+						console.log(`Seçilen Ses: ${selectedVoice.name}`);
+					} else {
+						console.warn("Varsayılan ses kullanılacak.");
+					}
+
+					window.speechSynthesis.speak(speech);
+				} else {
+					console.warn("Yanıt henüz alınmadı.");
+				}
+			});
+		}
+
+		if (speechSynthesis.getVoices().length > 0) {
+			loadVoices();
+		} else {
+			speechSynthesis.onvoiceschanged = function () {
+				loadVoices();
+			};
+		}
+
+		// 🖼 **Görsel Üretme (OpenAI API ile)**
+		const video = document.getElementById("video");
+		const canvas = document.getElementById("canvas");
+		const captureButton = document.getElementById("capturePhoto");
+		const generateButton = document.getElementById("generateImageBtn");
+		const photoPreview = document.getElementById("photoPreview");
+		const generatedImage = document.getElementById("generatedImage");
+		const qrButton = document.getElementById("generateQrBtn");
+		const qrCodeImage = document.getElementById("qrCodeImage");
+
+		// Kamerayı aç
+		navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+			video.srcObject = stream;
+		});
+
+		// Fotoğraf Çekme İşlemi
+		captureButton.addEventListener("click", () => {
+			const context = canvas.getContext("2d");
+			canvas.width = video.videoWidth;
+			canvas.height = video.videoHeight;
+			context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+			// Fotoğrafı Base64'e Çevir
+			const base64Image = canvas.toDataURL("image/jpeg").split(",")[1];
+
+			// Önizleme Göster
+			photoPreview.src = "data:image/jpeg;base64," + base64Image;
+			photoPreview.style.display = "block";
+
+			// 🔹 **Fix: Ensure the Generate button is always enabled if an image exists**
+			generateButton.dataset.image = base64Image;
+			generateButton.disabled = false;
+		});
+
+		// AI ile Görsel Oluşturma
+		generateButton.addEventListener("click", () => {
+			const legendName = document.getElementById("legendNameInput").value;
+			const base64Image = generateButton.dataset.image;
+
+			generateButton.innerText = "Görsel Oluşturuluyor...";
+			generateButton.disabled = true;
+
+			fetch("/Photo/GenerateLegendImage", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ Name: legendName, ImageData: base64Image })
+			})
+			.then(response => response.json())
+			.then(data => {
+				if (data.success) {
+					generatedImage.src = data.imageUrl;
+					generatedImage.style.display = "block";
+					qrButton.style.display = "block"; // 🎯 QR kod butonunu göster
+				} else {
+					alert("Hata: " + data.message);
+				}
+			})
+			.catch(error => {
+				console.error("API Hatası:", error);
+				alert("Görsel oluşturma sırasında bir hata oluştu. Lütfen tekrar deneyin.");
+			})
+			.finally(() => {
+				generateButton.innerText = "Görsel Oluştur";
+				generateButton.disabled = false;
+			});
+		});
+
+		// QR Kod Butonuna Basıldığında QR Kod Oluştur
+			  qrButton.addEventListener("click", () => {
+		console.log("📲 QR butonuna basıldı!");
+
+		const imageUrl = generatedImage.src;
+		console.log("🔗 Görsel URL:", imageUrl);
+
+		if (!imageUrl || imageUrl === "undefined") {
+			alert("Önce bir görsel oluşturmalısınız!");
+			return;
+		}
+
+		// 🔥 Alternatif QR API: `api.qrserver.com`
+		const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(imageUrl)}`;
+		console.log("🖼️ Alternatif QR Kod URL'si:", qrUrl);
+
+		// QR kod görselini ekrana göster
+		qrCodeImage.src = qrUrl;
+		qrCodeImage.style.display = "block";
+
+	});
+
+	});
+
+</script>

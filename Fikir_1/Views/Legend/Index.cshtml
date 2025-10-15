@@ -1,0 +1,23 @@
+﻿@model List<Fikir_1.Models.Legends.LegendModel>
+
+<div class="container mt-4">
+    <h2 class="text-center mb-3">📜 Efsanelerle Konuş</h2>
+    <p class="text-center text-muted">Bir efsane seç, ona sorular sor ve onlarla bir resmin olsun:)!</p>
+
+    <div class="row">
+        @foreach (var legend in Model)
+        {
+            <div class="col-md-4 mb-4">
+                <div class="card shadow-lg border-0">
+                    <img src="@Url.Content(legend.PhotoUrl)" class="card-img-top rounded" alt="@legend.Name" style="height: 200px; object-fit: cover;">
+
+                    <div class="card-body text-center">
+                        <h5 class="card-title">@legend.Name</h5>
+                        <p class="card-text text-muted">@legend.Description</p>
+                        <a href="@Url.Action("Chat","Legend", new { id = legend.Id })" class="btn btn-primary">💬 Soru Sor</a>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
